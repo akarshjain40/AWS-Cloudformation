@@ -1,0 +1,59 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Description": "AWS CloudFormation Template for creating an Amazon RDS DB instance"   
+Parameters:
+  DBInstanceID:
+    Default: evive-postgres
+    Description: Postgres Instance
+    Type: String
+    ConstraintDescription: >-
+      Must begin with a letter and must not end with a hyphen or contain two
+      consecutive hyphens.
+  DBName:
+    Default: postgres
+    Description: Posgres database
+    Type: String
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters.
+  DBInstanceClass:
+    Default: db.r4.xlarge
+    Description: DB instance class
+    Type: String
+    ConstraintDescription: Must select a valid DB instance type.
+  DBAllocatedStorage:
+    Default: '500'
+    Description: The size of the database (GiB)
+    Type: Number
+    ConstraintDescription: must be between 20 and 65536 GiB.
+  DBUsername:
+    NoEcho: 'true'
+    Description: Username for MySQL database access
+    Type: String
+    MinLength: '1'
+    MaxLength: '16'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters.
+  DBPassword:
+    NoEcho: 'true'
+    Description: Password MySQL database access
+    Type: String
+    MinLength: '8'
+    MaxLength: '41'
+    AllowedPattern: '[a-zA-Z0-9]*'
+    ConstraintDescription: must contain only alphanumeric characters.
+Resources:
+  MyDB:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      DBInstanceIdentifier: !Ref DBInstanceID
+      DBName: !Ref DBName
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: !Ref DBAllocatedStorage
+      Engine: Postgres
+      EngineVersion: 10.10
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      AutoMinorVersionUpgrade: Yes
+      MultiAZ: No
+      MonitoringInterval: '60'
+      DBSubnetGroupName: 'default-vpc-09d29a85c2f534e40'
+      MonitoringRoleArn: 'arn:aws:iam::123456789012:role/rds-monitoring-role'
