@@ -1,0 +1,50 @@
+Resources:
+  SQSQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: member-profile
+      DelaySeconds: '0'
+      MessageRetentionPeriod: '604800'
+      ReceiveMessageWaitTimeSeconds: '20'
+      KmsDataKeyReusePeriodSeconds: '86400'  
+      VisibilityTimeout: '180'
+      KmsMasterKeyId: 'alias/aws/sqs'  
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: 5
+      Tags:
+        - Key: Team
+          Value: Tagging
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        Fn::Join:
+          - '-'
+          - - !GetAtt SQSQueue.QueueName
+            - DeadLetterQueue
+      KmsDataKeyReusePeriodSeconds: '86400'  
+      KmsMasterKeyId: 'alias/aws/sqs'
+  QueuePolicy:
+    Type: 'AWS::SQS::QueuePolicy'
+    Properties:
+      PolicyDocument:
+        Id: member-profile
+        Statement:
+          - Sid: '1'
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: SQS:*
+            Resource: !Sub arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${SQSQueue.QueueName}
+          - Sid: '2'
+            Effect: Deny
+            Principal: "*"
+            Action:
+              - SQS:SendMessage
+              - SQS:ReceiveMessage
+              - SQS:DeleteMessage
+            Resource: !Sub arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${SQSQueue.QueueName}
+            Condition:
+              StringNotEquals:
+                aws:sourceVpce: "I will provide and its env vise"      
