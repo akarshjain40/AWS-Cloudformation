@@ -1,0 +1,211 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: "AWS CloudFormation Template for creating an Amazon Aurora instance" 
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Aurora Postgres Info"
+        Parameters:
+          - DBInstanceID
+          - EngineVersion
+          - DBName
+          - DBInstanceClass
+          - DBUsername
+          - DBPassword
+
+      - 
+        Label:
+          default: "Connectivity and Security"
+        Parameters:
+          - ParentVPCStack
+          - SubnetGroupName
+          - StorageEncrypteds
+          - KMSKey
+
+      -
+        Label:
+          default: "Availability and Additional Info"
+        Parameters:
+          - MultiAz
+          - AutoMinorVersionUpgrade
+          - DBBackupRetentionPeriod
+          - PreferredMaintenanceWindow
+Parameters:
+  ParentVPCStack:
+    Description: VPC stack name in which the cluster is to be deployed
+    Type: String
+  DBInstanceID:
+    Description: Postgres Instance
+    Type: String
+    Default: member-profile
+  Engine:
+    Description: 'Aurora engine version'
+    Type: String   
+    AllowedValues:
+    - 5.7.mysql-aurora.2.07.2 
+    - 5.7.mysql-aurora.2.06.0 
+    - 5.7.mysql-aurora.2.05.0 
+    - aurora-postgresql-11.6 
+    - aurora-postgresql-10.11
+    - aurora-postgresql-10.7
+    - aurora-postgresql-10.6
+  DBName:
+    Default: postgres
+    Description: Posgres database
+    Type: String
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters.
+  DBInstanceClass:
+    Description: DB instance class
+    Type: String
+    AllowedValues:
+      - db.r4.large
+      - db.r4.xlarge
+      - db.r4.2xlarge
+      - db.r5.large
+      - db.r5.xlarge
+      - db.r5.2xlarge
+    Default: db.r4.xlarge
+  DBUsername:
+    NoEcho: 'true'
+    Description: Username for Aurora Postgres database access
+    Type: String
+    MinLength: '1'
+    MaxLength: '16'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters.
+  DBPassword:
+    NoEcho: 'true'
+    Description: Password for Aurora Postgres database access
+    Type: String
+    MinLength: '8'
+    MaxLength: '41'
+    AllowedPattern: '[a-zA-Z0-9]*'
+    ConstraintDescription: must contain only alphanumeric characters.
+  MultiAZ:
+    Description: Select if Multi-AZ is required 
+    Type: String
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Default: 'true'  
+  AutoMinorVersionUpgrade:
+    Description: Whether or not minor version upgrades to the cache engine should be applied automatically 
+                 during the maintenance window.
+    Type: String
+    AllowedValues:
+      - 'true'
+      - 'false' 
+    Default: 'false'       
+  DBBackupRetentionPeriod:
+    Description: 'The number of days to keep snapshots of the cluster.'
+    Type: Number
+    MinValue: '1'
+    MaxValue: '35'
+    Default: '7'
+  SubnetGroupName:
+    Description: Name for the subnet group to use (optional)
+    Type: String 
+  KmsKey:
+    Description: ID of KMS key to use to encrypt the disk on the cluster (default key is used if not specified)
+    Type: String
+  SNSTopic:
+    Description: SNS Topic name to which notifications are sent (optional)
+    Type: String    
+  PreferredMaintenanceWindow:
+    Description: The weekly time range (in UTC) during which system maintenance can occur.
+    Type: String
+    Default: 'sat:07:00-sat:07:30'
+  StorageEncrypted:
+    Description: Select if encryption at rest is required
+    Type: String
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Default: 'true'
+
+Mappings:
+  EngineMap:
+    5.7.mysql-aurora.2.07.2:
+      Engine: aurora-mysql
+      EngineVersion: 5.7.mysql_aurora.2.07.2
+      Port: 3306
+    5.7.mysql-aurora.2.06.0:
+      Engine: aurora-mysql
+      EngineVersion: 5.7.mysql_aurora.2.06.0
+      Port: 3306
+    5.7.mysql-aurora.2.05.0:
+      Engine: aurora-mysql
+      EngineVersion: 5.7.mysql_aurora.2.05.0
+      Port: 3306
+    aurora-postgresql-11.6:
+      Engine: aurora-postgresql
+      EngineVersion: 11.6
+      Port: 5432
+    aurora-postgresql-10.11:
+      Engine: aurora-postgresql
+      EngineVersion: 10.11
+      Port: 5432     
+    aurora-postgresql-10.7:
+      Engine: aurora-postgresql
+      EngineVersion: 10.7
+      Port: 5432
+    aurora-postgresql-10.6:
+      Engine: aurora-postgresql
+      EngineVersion: 10.6
+      Port: 5432   
+Conditions:
+  HasSNSTopic: !Not [!Equals [!Ref SNSTopic, '']]
+  HasSubnetGroupName: !Not [!Equals [!Ref SubnetGroupName, '']]
+  HasKmsKey: !Not [!Equals [!Ref KmsKey, '']]
+Resources:
+  ClusterSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: !Sub 'Allow aurora postgres connections from ${AWS::StackName}'
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: !FindInMap [EngineMap, !Ref Engine, Port]
+        ToPort: !FindInMap [EngineMap, !Ref Engine, Port]
+        SourceSecurityGroupId: 
+          'Fn::ImportValue': !Sub '${ParentVPCStack}-sharedprivatesg'
+      VpcId: {'Fn::ImportValue': !Sub '${ParentVPCStack}-vpcid'}
+  DBSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupName: !If [HasSubnetGroupName, !Ref SubnetGroupName, !Ref 'AWS::StackName']
+      DBSubnetGroupDescription: !Sub 'Subnet group of ${AWS::StackName}'
+      SubnetIds:
+        - 'Fn::ImportValue': !Sub ${ParentVPCStack}-privateaz1subnet
+        - 'Fn::ImportValue': !Sub ${ParentVPCStack}-privateaz2subnet
+        - 'Fn::ImportValue': !Sub ${ParentVPCStack}-privateaz3subnet      
+  AuroraDB:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      DBInstanceIdentifier: !Ref DBInstanceID
+      DBName: !Ref DBName
+      DBInstanceClass: !Ref DBInstanceClass
+      Engine: !FindInMap [EngineMap, !Ref Engine, Engine]
+      EngineVersion: !FindInMap [EngineMap, !Ref Engine, EngineVersion]
+      Port: !FindInMap [EngineMap, !Ref Engine, Port]
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      MultiAZ: !Ref MultiAZ
+      VpcSecurityGroupIds: !Ref ClusterSecurityGroup
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      AutoMinorVersionUpgrade: !Ref AutoMinorVersionUpgrade
+      DeletionProtection: 'true'
+      StorageEncrypted: !Ref StorageEncrypted
+      KmsKeyId: !If [HasKmsKey, !Ref KmsKey, !Ref 'AWS::NoValue']
+      PreferredMaintenanceWindow: !Ref PreferredMaintenanceWindow
+Outputs:
+  ClusterName:
+    Description: 'The name of the cluster.'
+    Value: !Ref AuroraDB
+    Export:
+      Name: !Sub '${AWS::StackName}-ClusterName'     
+  DNSName:
+    Description: 'The connection endpoint for the DB cluster.'
+    Value: !GetAtt 'AuroraDB.Endpoint.Address'
+    Export:
+      Name: !Sub '${AWS::StackName}-DNSName'
