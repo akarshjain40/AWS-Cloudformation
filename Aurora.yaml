@@ -20,7 +20,7 @@ Metadata:
         Parameters:
           - ParentVPCStack
           - SubnetGroupName
-          - StorageEncrypteds
+          - StorageEncrypted
           - KMSKey
 
       -
@@ -30,7 +30,8 @@ Metadata:
           - MultiAz
           - AutoMinorVersionUpgrade
           - DBBackupRetentionPeriod
-          - PreferredMaintenanceWindow
+          - PreferredBackupWindow
+          - PreferredMaintenanceWindow    
 Parameters:
   ParentVPCStack:
     Description: VPC stack name in which the cluster is to be deployed
@@ -59,6 +60,7 @@ Parameters:
     Description: DB instance class
     Type: String
     AllowedValues:
+      - db.t3.medium
       - db.r4.large
       - db.r4.xlarge
       - db.r4.2xlarge
@@ -81,22 +83,7 @@ Parameters:
     MinLength: '8'
     MaxLength: '41'
     AllowedPattern: '[a-zA-Z0-9]*'
-    ConstraintDescription: must contain only alphanumeric characters.
-  MultiAZ:
-    Description: Select if Multi-AZ is required 
-    Type: String
-    AllowedValues:
-      - 'true'
-      - 'false'
-    Default: 'true'  
-  AutoMinorVersionUpgrade:
-    Description: Whether or not minor version upgrades to the cache engine should be applied automatically 
-                 during the maintenance window.
-    Type: String
-    AllowedValues:
-      - 'true'
-      - 'false' 
-    Default: 'false'       
+    ConstraintDescription: must contain only alphanumeric characters. 
   DBBackupRetentionPeriod:
     Description: 'The number of days to keep snapshots of the cluster.'
     Type: Number
@@ -108,10 +95,11 @@ Parameters:
     Type: String 
   KmsKey:
     Description: ID of KMS key to use to encrypt the disk on the cluster (default key is used if not specified)
+    Type: String  
+  PreferredBackupWindow:
+    Description: 'The daily time range in UTC during which you want to create automated backups.'
     Type: String
-  SNSTopic:
-    Description: SNS Topic name to which notifications are sent (optional)
-    Type: String    
+    Default: '06:00-06:30'    
   PreferredMaintenanceWindow:
     Description: The weekly time range (in UTC) during which system maintenance can occur.
     Type: String
@@ -130,45 +118,51 @@ Mappings:
       Engine: aurora-mysql
       EngineVersion: 5.7.mysql_aurora.2.07.2
       Port: 3306
+      ClusterParameterGroupFamily: 'aurora5.7'
     5.7.mysql-aurora.2.06.0:
       Engine: aurora-mysql
       EngineVersion: 5.7.mysql_aurora.2.06.0
       Port: 3306
+      ClusterParameterGroupFamily: 'aurora5.7'
     5.7.mysql-aurora.2.05.0:
       Engine: aurora-mysql
       EngineVersion: 5.7.mysql_aurora.2.05.0
       Port: 3306
+      ClusterParameterGroupFamily: 'aurora5.7'
     aurora-postgresql-11.6:
       Engine: aurora-postgresql
       EngineVersion: 11.6
-      Port: 5432
+      Port: 5432     
+      ClusterParameterGroupFamily: 'aurora-postgresql11'
     aurora-postgresql-10.11:
       Engine: aurora-postgresql
       EngineVersion: 10.11
       Port: 5432     
+      ClusterParameterGroupFamily: 'aurora-postgresql10'
     aurora-postgresql-10.7:
       Engine: aurora-postgresql
       EngineVersion: 10.7
       Port: 5432
+      ClusterParameterGroupFamily: 'aurora-postgresql10'
     aurora-postgresql-10.6:
       Engine: aurora-postgresql
       EngineVersion: 10.6
       Port: 5432   
+      ClusterParameterGroupFamily: 'aurora-postgresql10'
 Conditions:
-  HasSNSTopic: !Not [!Equals [!Ref SNSTopic, '']]
   HasSubnetGroupName: !Not [!Equals [!Ref SubnetGroupName, '']]
   HasKmsKey: !Not [!Equals [!Ref KmsKey, '']]
+  HasEngineMySQL: !Equals [!FindInMap [EngineMap, !Ref Engine, Engine], 'aurora-mysql']
 Resources:
   ClusterSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
     Properties:
       GroupDescription: !Sub 'Allow aurora postgres connections from ${AWS::StackName}'
       SecurityGroupIngress:
-      - IpProtocol: tcp
-        FromPort: !FindInMap [EngineMap, !Ref Engine, Port]
-        ToPort: !FindInMap [EngineMap, !Ref Engine, Port]
-        SourceSecurityGroupId: 
-          'Fn::ImportValue': !Sub '${ParentVPCStack}-sharedprivatesg'
+        - IpProtocol: tcp
+          FromPort: !FindInMap [EngineMap, !Ref Engine, Port]
+          ToPort: !FindInMap [EngineMap, !Ref Engine, Port]
+          SourceSecurityGroupId: {'Fn::ImportValue': !Sub '${ParentVPCStack}-sharedprivatesg'}
       VpcId: {'Fn::ImportValue': !Sub '${ParentVPCStack}-vpcid'}
   DBSubnetGroup:
     Type: 'AWS::RDS::DBSubnetGroup'
@@ -178,34 +172,89 @@ Resources:
       SubnetIds:
         - 'Fn::ImportValue': !Sub ${ParentVPCStack}-privateaz1subnet
         - 'Fn::ImportValue': !Sub ${ParentVPCStack}-privateaz2subnet
-        - 'Fn::ImportValue': !Sub ${ParentVPCStack}-privateaz3subnet      
-  AuroraDB:
-    Type: 'AWS::RDS::DBInstance'
+        - 'Fn::ImportValue': !Sub ${ParentVPCStack}-privateaz3subnet 
+  DBClusterParameterGroup:
+    Type: 'AWS::RDS::DBClusterParameterGroup'
     Properties:
-      DBInstanceIdentifier: !Ref DBInstanceID
-      DBName: !Ref DBName
-      DBInstanceClass: !Ref DBInstanceClass
+      Description: !Ref 'AWS::StackName'
+      Family: !FindInMap [EngineMap, !Ref Engine, ClusterParameterGroupFamily]
+      Parameters: !If
+      - HasEngineMySQL
+      - character_set_client: utf8
+        character_set_connection: utf8
+      - client_encoding: 'UTF8'                  
+  AuroraDBCluster:
+    DeletionPolicy: Snapshot 
+    UpdateReplacePolicy: Snapshot  
+    Type: 'AWS::RDS::DBCluster'
+    Properties:
+      DBClusterIdentifier: !Ref DBInstanceID
+      DatabaseName: !Ref DBName
+      DBClusterParameterGroupName: !Ref DBClusterParameterGroup
       Engine: !FindInMap [EngineMap, !Ref Engine, Engine]
       EngineVersion: !FindInMap [EngineMap, !Ref Engine, EngineVersion]
+      EngineMode: provisioned
       Port: !FindInMap [EngineMap, !Ref Engine, Port]
       MasterUsername: !Ref DBUsername
       MasterUserPassword: !Ref DBPassword
-      MultiAZ: !Ref MultiAZ
-      VpcSecurityGroupIds: !Ref ClusterSecurityGroup
+      VpcSecurityGroupIds: 
+        - !Ref ClusterSecurityGroup
       DBSubnetGroupName: !Ref DBSubnetGroup
-      AutoMinorVersionUpgrade: !Ref AutoMinorVersionUpgrade
       DeletionProtection: 'true'
       StorageEncrypted: !Ref StorageEncrypted
       KmsKeyId: !If [HasKmsKey, !Ref KmsKey, !Ref 'AWS::NoValue']
-      PreferredMaintenanceWindow: !Ref PreferredMaintenanceWindow
+      PreferredBackupWindow: !Ref PreferredBackupWindow
+      PreferredMaintenanceWindow: !Ref PreferredMaintenanceWindow   
+  AuroraDBInstanceA:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      DBInstanceIdentifier: !Join ['-', [!Ref DBInstanceID, 'A']]
+      DBClusterIdentifier: !Ref AuroraDBCluster
+      DBInstanceClass: !Ref DBInstanceClass
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      Engine: !FindInMap [EngineMap, !Ref Engine, Engine]
+      AllowMajorVersionUpgrade: false
+      AutoMinorVersionUpgrade: true
+      CopyTagsToSnapshot: true
+  AuroraDBInstanceB:
+    Type: 'AWS::RDS::DBInstance'
+    DependsOn: AuroraDBInstanceA
+    Properties:
+      DBInstanceIdentifier: !Join ['-', [!Ref DBInstanceID, 'B']]      
+      DBClusterIdentifier: !Ref AuroraDBCluster
+      DBInstanceClass: !Ref DBInstanceClass
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      Engine: !FindInMap [EngineMap, !Ref Engine, Engine]    
+      AllowMajorVersionUpgrade: false
+      AutoMinorVersionUpgrade: true
+      CopyTagsToSnapshot: true
+
 Outputs:
   ClusterName:
     Description: 'The name of the cluster.'
-    Value: !Ref AuroraDB
+    Value: !Ref AuroraDBCluster
     Export:
       Name: !Sub '${AWS::StackName}-ClusterName'     
   DNSName:
     Description: 'The connection endpoint for the DB cluster.'
-    Value: !GetAtt 'AuroraDB.Endpoint.Address'
+    Value: !GetAtt 'AuroraDBCluster.Endpoint.Address'
     Export:
       Name: !Sub '${AWS::StackName}-DNSName'
+  DBInstanceA:
+    Description: 'The connection endpoint for the first DB Instance.'
+    Value: !GetAtt 'AuroraDBInstanceA.Endpoint.Address'
+  DBInstanceB:
+    Description: 'The connection endpoint for the second DB Instance.'
+    Value: !GetAtt 'AuroraDBInstanceB.Endpoint.Address'
+  DBClusterParameterGroup:
+    Description: 'The parameter group of DBcluster'
+    Value: !Ref DBClusterParameterGroup  
+  ClusterVpcId:
+    Description: 'Vpc of the Cluster'
+    Value: !GetAtt ClusterSecurityGroup.VpcId
+  ClusterSecurityGroups:
+    Description: 'Security groups of the Cluster'
+    Value: !GetAtt ClusterSecurityGroup.GroupId
+  SubnetIds:
+    Description: 'SubnetIds of the Cluster'
+    Value: !Ref DBSubnetGroup
