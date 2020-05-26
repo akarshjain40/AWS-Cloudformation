@@ -1,0 +1,96 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creating VPC endpoint
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Endpoint Info"
+        Parameters:
+          - VpcID
+          - ServiceName
+          - VpcEndpointType
+          - PrivateDNS
+
+      - 
+        Label:
+          default: "Interface Endpoint" 
+        Parameters:
+          - SubnetIds 
+          - SecurityGroups     
+
+      - 
+        Label:
+          default: "Gateway Endpoint"
+        Parameters:
+          - RouteTableIds
+    
+Parameters:
+  VpcID:
+    Type: AWS::EC2::VPC::Id
+    Description: The ID of the VPC in which the endpoint will be used.
+  ServiceName:
+    Description: The service name for which endpoint has to be created. S3 and dynamodb requires Gateway endpoints 
+    Type: String
+    AllowedValues:
+      - sqs
+      - ec2
+      - execute-api
+      - ecs
+      - athena
+      - s3
+      - dynamodb  
+  VpcEndpointType:
+    Description: Indicate whether to associate a private hosted zone with the specified VPC. 
+    Type: String
+    AllowedValues:
+      - Gateway
+      - Interface
+  PrivateDNS:
+    Description: Indicate whether to associate a private hosted zone with the specified VPC. 
+    Type: String
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Default: 'false' 
+  SubnetIds:
+    Description:  For Interface Vpc Endpoint. The ID of one or more subnets in which to create an endpoint network interface.
+    Type: 'List<AWS::EC2::Subnet::Id>'  
+  SecurityGroups:
+    Description: For Interface VpcEndpoint. The ID of one or more security groups to associate with the endpoint network interface.
+    Type: 'List<AWS::EC2::SecurityGroup::Id>'      
+  RouteTableIds:
+    Description: For Gateway Vpc Endpoint requires RouteTableId.For multiple RouteIds please specify with comma.
+    Type: String
+Conditions:
+  HasInterfaceEndpoint: !Equals [ !Ref VpcEndpointType, "Interface"]
+Resources:      
+  VpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: 
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: "*"
+            Resource: "*"
+      VpcEndpointType: !Ref VpcEndpointType
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.${ServiceName}
+      VpcId: !Ref VpcID
+      SubnetIds: !If [HasInterfaceEndpoint, !Ref SubnetIds, !Ref 'AWS::NoValue']
+      SecurityGroupIds: !If [HasInterfaceEndpoint, !Ref SecurityGroups, !Ref 'AWS::NoValue']
+      PrivateDnsEnabled: !Ref PrivateDNS
+      RouteTableIds: !If [HasInterfaceEndpoint, !Ref 'AWS::NoValue', !Split [",", !Ref RouteTableIds]]
+      
+Outputs:
+  DnsEntries:
+    Condition: HasInterfaceEndpoint
+    Description: The DNS entries for the endpoint
+    Value: !Join [',', !GetAtt VpcEndpoint.DnsEntries]
+  NetworkInterfaceIds:
+    Condition: HasInterfaceEndpoint
+    Description: Network interface IDs
+    Value: !Join [',', !GetAtt VpcEndpoint.NetworkInterfaceIds]
