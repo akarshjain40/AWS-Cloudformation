@@ -8,7 +8,7 @@ Metadata:
           default: "Aurora Postgres Info"
         Parameters:
           - DBInstanceID
-          - EngineVersion
+          - Engine
           - DBName
           - DBInstanceClass
           - DBUsername
@@ -18,24 +18,31 @@ Metadata:
         Label:
           default: "Connectivity and Security"
         Parameters:
-          - ParentVPCStack
+          - VpcID
+          - SecurityGroupID
+          - SubnetID
           - SubnetGroupName
           - StorageEncrypted
-          - KMSKey
+          - KmsKey
 
       -
         Label:
           default: "Availability and Additional Info"
         Parameters:
           - MultiAz
-          - AutoMinorVersionUpgrade
           - DBBackupRetentionPeriod
           - PreferredBackupWindow
           - PreferredMaintenanceWindow    
 Parameters:
-  ParentVPCStack:
+  VpcID:
     Description: VPC stack name in which the cluster is to be deployed
-    Type: String
+    Type: AWS::EC2::VPC::Id
+  SecurityGroupID:
+    Description: The ID of security group to associate with Aurora.
+    Type: AWS::EC2::SecurityGroup::Id 
+  SubnetID:
+    Description: The ID of one or more security groups to associate with Aurora.
+    Type: 'List<AWS::EC2::Subnet::Id>'         
   DBInstanceID:
     Description: Postgres Instance
     Type: String
@@ -95,7 +102,14 @@ Parameters:
     Type: String 
   KmsKey:
     Description: ID of KMS key to use to encrypt the disk on the cluster (default key is used if not specified)
-    Type: String  
+    Type: String
+  MultiAz:
+    Description: High availabilty and failover
+    Type: String
+    AllowedValues:
+    - 'true'
+    - 'false'
+    Default: 'true'
   PreferredBackupWindow:
     Description: 'The daily time range in UTC during which you want to create automated backups.'
     Type: String
@@ -150,6 +164,7 @@ Mappings:
       Port: 5432   
       ClusterParameterGroupFamily: 'aurora-postgresql10'
 Conditions:
+  HasMultiAz: !Equals [ !Ref MultiAz, 'true']
   HasSubnetGroupName: !Not [!Equals [!Ref SubnetGroupName, '']]
   HasKmsKey: !Not [!Equals [!Ref KmsKey, '']]
   HasEngineMySQL: !Equals [!FindInMap [EngineMap, !Ref Engine, Engine], 'aurora-mysql']
@@ -162,17 +177,14 @@ Resources:
         - IpProtocol: tcp
           FromPort: !FindInMap [EngineMap, !Ref Engine, Port]
           ToPort: !FindInMap [EngineMap, !Ref Engine, Port]
-          SourceSecurityGroupId: {'Fn::ImportValue': !Sub '${ParentVPCStack}-sharedprivatesg'}
-      VpcId: {'Fn::ImportValue': !Sub '${ParentVPCStack}-vpcid'}
+          SourceSecurityGroupId: !Ref SecurityGroupID
+      VpcId: !Ref VpcID
   DBSubnetGroup:
     Type: 'AWS::RDS::DBSubnetGroup'
     Properties:
       DBSubnetGroupName: !If [HasSubnetGroupName, !Ref SubnetGroupName, !Ref 'AWS::StackName']
       DBSubnetGroupDescription: !Sub 'Subnet group of ${AWS::StackName}'
-      SubnetIds:
-        - 'Fn::ImportValue': !Sub ${ParentVPCStack}-privateaz1subnet
-        - 'Fn::ImportValue': !Sub ${ParentVPCStack}-privateaz2subnet
-        - 'Fn::ImportValue': !Sub ${ParentVPCStack}-privateaz3subnet 
+      SubnetIds: !Ref SubnetID
   DBClusterParameterGroup:
     Type: 'AWS::RDS::DBClusterParameterGroup'
     Properties:
@@ -217,6 +229,7 @@ Resources:
       AutoMinorVersionUpgrade: true
       CopyTagsToSnapshot: true
   AuroraDBInstanceB:
+    Condition: HasMultiAz
     Type: 'AWS::RDS::DBInstance'
     DependsOn: AuroraDBInstanceA
     Properties:
@@ -244,6 +257,7 @@ Outputs:
     Description: 'The connection endpoint for the first DB Instance.'
     Value: !GetAtt 'AuroraDBInstanceA.Endpoint.Address'
   DBInstanceB:
+    Condition: HasMultiAz
     Description: 'The connection endpoint for the second DB Instance.'
     Value: !GetAtt 'AuroraDBInstanceB.Endpoint.Address'
   DBClusterParameterGroup:
@@ -252,9 +266,10 @@ Outputs:
   ClusterVpcId:
     Description: 'Vpc of the Cluster'
     Value: !GetAtt ClusterSecurityGroup.VpcId
+  SubnetName:
+    Description: 'Subnetname of the Cluster'
+    Value: !Ref DBSubnetGroup    
   ClusterSecurityGroups:
     Description: 'Security groups of the Cluster'
     Value: !GetAtt ClusterSecurityGroup.GroupId
-  SubnetIds:
-    Description: 'SubnetIds of the Cluster'
-    Value: !Ref DBSubnetGroup
+
