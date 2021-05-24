@@ -1,0 +1,107 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creating MSK Cluster
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Networking Info"
+        Parameters:
+          - VpcID
+          - SecurityGroupID
+          - SubnetID
+
+      -
+        Label:
+          default: "Cluster Info"
+        Parameters:
+          - ClusterName
+          - InstanceType
+          - KafkaVersion
+          - VolumeSize    
+          - NumberOfBrokerNodes
+          
+Parameters:
+  VpcID:
+    Description: VPC stack name in which the cluster is to be deployed
+    Type: AWS::EC2::VPC::Id
+  SecurityGroupID:
+    Description: The ID of security group to associate with MSKCluster.
+    Type: 'List<AWS::EC2::SecurityGroup::Id>'
+  SubnetID:
+    Description: The ID of one or more security groups to associate with MSKCluster.
+    Type: 'List<AWS::EC2::Subnet::Id>' 
+  ClusterName:
+    Description: The MSKCluster Name.
+    Type: String       
+  InstanceType:
+    Description: MSK instance class
+    Type: String
+    AllowedValues:
+      - kafka.t3.small
+      - kafka.m5.large 
+      - kafka.m5.2xlarge
+      - kafka.m5.4xlarge 
+      - kafka.m5.8xlarge 
+      - kafka.m5.12xlarge 
+      - kafka.m5.16xlarge 
+      - kafka.m5.24xlarge
+    Default: kafka.t3.small  
+  KafkaVersion:
+    Description: Kafka version
+    Type: String   
+    AllowedValues:
+    - 2.2.1
+    - 2.3.1
+    - 2.4.1
+    - 2.5.1
+    - 2.6.1
+    - 2.7.1
+  VolumeSize:
+    Description: EBS Volume Size that has to be attached (Between 1GiB - 16384Gib)
+    Type: String   
+  NumberOfBrokerNodes:
+    Description: Specify number of nodes
+    Type: String
+
+Resources:
+  MSKCluster:
+    Type: AWS::MSK::Cluster
+    Properties: 
+      BrokerNodeGroupInfo: 
+        ClientSubnets: !Ref SubnetID
+        InstanceType: !Ref InstanceType
+        SecurityGroups: !Ref SecurityGroupID
+        StorageInfo:
+          EBSStorageInfo:
+            VolumeSize: !Ref VolumeSize
+      ClusterName: !Ref ClusterName
+      ClientAuthentication: 
+        Sasl:
+          Scram:
+            Enabled: True
+      EncryptionInfo:
+        EncryptionInTransit:
+          ClientBroker: TLS
+          InCluster: true
+      ConfigurationInfo:  
+        Arn: arn:aws:kafka:xxx:xxxxxx:configuration/dev-test/xxxxx
+        Revision: 2
+     
+      LoggingInfo: 
+        BrokerLogs:
+          CloudWatchLogs:
+            Enabled: true
+            LogGroup: kafka-test
+      Tags: 
+        Username: Akarsh
+        Team: MemberProfile
+      EnhancedMonitoring: PER_TOPIC_PER_BROKER
+      KafkaVersion: !Ref KafkaVersion
+      NumberOfBrokerNodes: !Ref NumberOfBrokerNodes
+
+Outputs:
+  MSKClusterArn:
+    Description: The Arn for the MSK cluster
+    Value: !Ref MSKCluster  
