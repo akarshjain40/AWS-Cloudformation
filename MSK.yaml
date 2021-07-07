@@ -64,6 +64,9 @@ Parameters:
   NumberOfBrokerNodes:
     Description: Specify number of nodes
     Type: String
+  MapMigratedTag:
+    Description: Specify map migrated tag
+    Type: String
 
 Resources:
   MSKCluster:
@@ -86,17 +89,18 @@ Resources:
           ClientBroker: TLS
           InCluster: true
       ConfigurationInfo:  
-        Arn: arn:aws:kafka:xxx:xxxxxx:configuration/dev-test/xxxxx
-        Revision: 2
+        Arn: !Sub arn:aws:kafka:${AWS::Region}:${AWS::AccountId}:configuration/kafka-cluster-configuration/xxxxxxx
+        Revision: 1
      
       LoggingInfo: 
         BrokerLogs:
           CloudWatchLogs:
             Enabled: true
-            LogGroup: kafka-test
+            LogGroup: msk/member-profile-kafka-logs
       Tags: 
         Username: Akarsh
         Team: MemberProfile
+        map-migrated: !Ref MapMigratedTag
       EnhancedMonitoring: PER_TOPIC_PER_BROKER
       KafkaVersion: !Ref KafkaVersion
       NumberOfBrokerNodes: !Ref NumberOfBrokerNodes
